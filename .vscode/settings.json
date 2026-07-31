@@ -1,0 +1,110 @@
+{
+  //format
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.autoGuessEncoding": true,
+  //PowerShell
+  "[powershell]": {
+    "files.encoding": "utf8bom"
+  },
+  "powershell.scriptAnalysis.enable": true,
+  "powershell.scriptAnalysis.settingsPath": "PSScriptAnalyzerSettings.psd1",
+  "powershell.codeFormatting.newLineAfterOpenBrace": true,
+  "powershell.codeFormatting.avoidSemicolonsAsLineTerminators": true,
+  "powershell.codeFormatting.autoCorrectAliases": true,
+  "powershell.codeFormatting.pipelineIndentationStyle": "IncreaseIndentationAfterEveryPipeline",
+  "powershell.codeFormatting.preset": "OTBS",
+  "powershell.codeFormatting.trimWhitespaceAroundPipe": true,
+  "powershell.codeFormatting.useConstantStrings": true,
+  "powershell.codeFormatting.useCorrectCasing": true,
+  "powershell.codeFormatting.whitespaceBetweenParameters": true,
+  "powershell.powerShellDefaultVersion": "brew",
+  //git
+  "git.autofetch": "all",
+  "git.fetchOnPull": true,
+  "git.pullBeforeCheckout": true,
+  "git.rebaseWhenSync": true,
+  // visuel
+  "editor.rulers": [80, 115],
+  //todohighlight
+  "todohighlight.isEnable": true,
+  "todohighlight.isCaseSensitive": false,
+  "todohighlight.keywords": [
+    "FIXME:", // without further details, this will use the defaultStyle
+    "REVIEW:", // as will this
+    // now for a more complex example
+    {
+      "text": "INFO:", // without a defined regex pattern this is the string that will be matched
+      "color": "white",
+      "backgroundColor": "rgba(50,255,50,.5)", // INFO: setting the last parameter to zero (alpha channel) disables the background colour
+      "border": "none",
+      "isWholeLine": false
+    },
+    {
+      "text": "WARNING:",
+      "before": {
+        "contentText": "⚠️" // adds text before the highlight
+      },
+      "after": {
+        "contentText": "⚠️" // adds text after the highlight
+      },
+      "color": "orange",
+      "border": "1px solid red",
+      "borderRadius": "2px", // NOTE: use borderRadius along with `border` or you will see nothing change
+      "backgroundColor": "rgba(0,0,0,.2)"
+    },
+    {
+      "text": "TODO(string):", // with a regex pattern defined, this setting isn't used, but is useful as a name for this section
+      "regex": {
+        "pattern": "(?<=^|\"|\\s)TODO(\\(\\w+\\))?:" // this allows for TODO: or TODO(Bob): etc.
+      },
+      "color": "yellow",
+      "backgroundColor": "rgba(0,0,0,.2)"
+    },
+    {
+      "text": "NOTE:", // with a regex pattern defined, this setting isn't used, but is useful as a name for this section
+      "color": "#ff0000",
+      "backgroundColor": "yellow",
+      "overviewRulerColor": "grey",
+      "regex": {
+        "pattern": "(?<=^|\"|\\s)NOTE[:]?(?!\\w)" // in this example, highlight `NOTE:` with or without the `:` and that's not part of another word.  (I.e.: The above will highlight 'NOTE' but not the "note" in 'SIDENOTE').
+        /**
+         * Positive lookbehind (`(?<=...)`) is only supported in Node.js v9 and up.
+         * If your VSCode version is built on an earlier version the example above may not work. Simple tests:
+         * Shouldn't work: note  deNOTEd  NOTEing
+         * Should work: NOTE:  "NOTE:"
+         **/
+      },
+      "isWholeLine": false
+    },
+    {
+      "text": "ERROR:",
+      "before": {
+        "contentText": "🚨" // adds text before the highlight
+      },
+      "after": {
+        "contentText": "🚨" // adds text after the highlight
+      },
+      "color": "red",
+      "border": "2px solid red",
+      "backgroundColor": "rgba(0,0,0,.75)"
+    },
+    {
+      "text": "IDEA:",
+      "before": {
+        "contentText": "💡" // adds text before the highlight
+      },
+      "after": {
+        "contentText": "💡" // adds text after the highlight
+      },
+      "color": "yellow",
+      "border": "2px solid white",
+      "backgroundColor": "rgba(100,255,100,.5)"
+    }
+  ],
+  "workbench.startupEditor": "readme",
+  "powershell.pester.codeLens": false,
+  "powershell.powerShellAdditionalExePaths": {
+    "brew": "/opt/homebrew/bin/pwsh"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "recommendations": [
+    "christian-kohler.path-intellisense",
+    "eamodio.gitlens",
+    "editorconfig.editorconfig",
+    "esbenp.prettier-vscode",
+    "gruntfuggly.todo-tree",
+    "jgclark.vscode-todo-highlight",
+    "ms-vscode.powershell",
+    "ms-vscode.test-adapter-converter",
+    "oderwat.indent-rainbow",
+    "pspester.pester-test",
+    "tylerleonhardt.vscode-inline-values-powershell",
+    "usernamehw.errorlens"
+  ]
+}
