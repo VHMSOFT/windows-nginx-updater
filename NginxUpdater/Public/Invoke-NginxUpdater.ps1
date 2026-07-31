@@ -7,7 +7,7 @@
         Update-Nginx.ps1 launcher, which passes its own path as -LauncherPath so the elevation
         relaunch can re-run the correct script.
     .PARAMETER Root
-        nginx root folder to manage. Prompts if omitted.
+        nginx root folder to manage. Optional: auto-detected from ..\nginx.exe (or asked) if omitted.
     .PARAMETER NssmPath
         Path to nssm.exe (only needed to create a service). Auto-detected if omitted.
     .PARAMETER ServiceName
@@ -49,7 +49,7 @@
     }
 
     $seed = @{ ServiceName = $ServiceName; NssmPath = $NssmPath; Channel = $Channel }
-    $rootPath = Get-RootInteractively $Root
+    $rootPath = Resolve-RootPath $Root
     $Config = Import-Config -RootPath $rootPath -Defaults $seed
     # Attempt service auto-detect once if not set.
     if (-not $Config.ServiceName) {

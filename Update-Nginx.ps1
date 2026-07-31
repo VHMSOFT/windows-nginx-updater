@@ -7,7 +7,9 @@
     and runs its interactive menu. All the logic lives in the module; this file only wires up
     parameters and passes its own path through so an elevation relaunch re-runs this launcher.
 .PARAMETER Root
-    nginx root folder to manage (the folder that holds conf\, html\, logs\, nginx.exe). Prompts if omitted.
+    nginx root folder to manage (the folder that holds conf\, html\, logs\, nginx.exe). Optional:
+    when omitted the tool auto-detects the root from ..\nginx.exe (tool deployed as a subfolder of
+    the root), or asks. No parameter is required - it can be run with no arguments.
 .PARAMETER NssmPath
     Path to nssm.exe (only needed to CREATE a service). Auto-detected if omitted.
 .PARAMETER ServiceName

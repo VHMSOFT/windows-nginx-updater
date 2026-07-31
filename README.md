@@ -61,6 +61,23 @@ uses the **root** `conf\` and `html\`, never the defaults bundled inside `versio
 
 ## Usage
 
+Every parameter is optional — the tool can be run with **no arguments**:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Update-Nginx.ps1
+```
+
+With no `-Root`, it resolves the nginx root in this order:
+
+1. **Auto-detect `..\nginx.exe`** — the folder one level above the tool. Deploy the updater as a
+   subfolder of the nginx root (e.g. `C:\nginx\updater\Update-Nginx.ps1`) and it finds
+   `C:\nginx\nginx.exe` and uses `C:\nginx` as the root, no prompts.
+2. If not found, it asks whether this is a **new install** that should be rooted at that `..`
+   location (yes → scaffold there).
+3. Otherwise it asks for the **path** to an nginx root elsewhere.
+
+You can still pin the root (or anything else) explicitly:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Update-Nginx.ps1 -Root C:\nginx
 ```
@@ -72,7 +89,7 @@ Handy switches (all optional — everything can also be set from the **Configure
 
 | Switch          | Purpose                                                        |
 |-----------------|----------------------------------------------------------------|
-| `-Root`         | nginx root folder to manage (prompts if omitted)               |
+| `-Root`         | nginx root (auto-detected from `..\nginx.exe`, or asked, if omitted) |
 | `-ServiceName`  | Windows service name (auto-detected/created if omitted)        |
 | `-NssmPath`     | Path to `nssm.exe` (auto-detected if omitted)                  |
 | `-Channel`      | `stable` \| `mainline` \| `ask` (default `ask`)                |

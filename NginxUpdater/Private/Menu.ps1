@@ -49,15 +49,40 @@ function Invoke-Configure {
     Write-Good 'Saved.'
 }
 
-function Get-RootInteractively {
+function Resolve-RootPath {
     <#
     .SYNOPSIS
-        Returns the provided root, or prompts the user for one.
+        Determines the nginx root: the -Root value, else auto-detected from ..\nginx.exe, else asked.
+    .DESCRIPTION
+        With no -Root, looks for nginx.exe one level above the launcher - the tool deployed as a
+        subfolder of the nginx root (so ..\nginx.exe is the running binary). If found, that parent
+        folder is the root. If not, asks whether this is a new install that should be rooted there;
+        otherwise prompts for the path to an nginx root elsewhere. No parameter is ever required.
     #>
     param([string]$Provided)
     if ($Provided) { return $Provided }
+
+    # Base the ..\nginx.exe lookup on the launcher's folder (falls back to the working directory).
+    $baseDir = $null
+    $inv = $script:Invocation
+    if ($inv.ContainsKey('LauncherPath') -and $inv['LauncherPath']) {
+        $baseDir = Split-Path -Parent $inv['LauncherPath']
+    }
+    if (-not $baseDir) { $baseDir = (Get-Location).Path }
+
+    $candidateRoot = Split-Path -Parent $baseDir
+    if ($candidateRoot -and (Test-Path -LiteralPath (Join-Path $candidateRoot 'nginx.exe'))) {
+        Write-Info "Auto-detected nginx root: $candidateRoot (found ..\nginx.exe next to the tool)."
+        return $candidateRoot
+    }
+
     Write-Host ''
-    Write-Info 'No -Root supplied. Enter the nginx root folder to manage.'
+    Write-Warn 'No nginx.exe found at ..\nginx.exe (one level above the tool).'
+    if ($candidateRoot -and
+        (Confirm-YesNo "Is this a new install whose root should be '$candidateRoot'?" $false)) {
+        return $candidateRoot
+    }
+    Write-Info 'Enter the path to the existing nginx root folder.'
     Write-Host '  Examples: C:\nginx   D:\services\nginx'
     $r = (Read-Host 'nginx root').Trim().Trim('"')
     if (-not $r) { throw 'A root folder is required.' }
