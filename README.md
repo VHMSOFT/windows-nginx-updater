@@ -8,6 +8,28 @@ and the tool asks whether to restart now or wait for the next natural restart.
 
 Run it locally on each server (matches your current manual per-server flow).
 
+## Project layout
+
+The logic lives in a PowerShell module; `Update-Nginx.ps1` is a thin launcher that imports it.
+
+```
+nginx-updater/
+├─ Update-Nginx.ps1                  # launcher: imports the module and runs the menu
+└─ NginxUpdater/                     # the module (ship this folder alongside the launcher)
+   ├─ NginxUpdater.psd1              # manifest (exports only Invoke-NginxUpdater)
+   ├─ NginxUpdater.psm1             # loader: module-scope state + dot-sources the files below
+   ├─ Public/
+   │  └─ Invoke-NginxUpdater.ps1    # the one public command (the menu entry point)
+   └─ Private/                       # internal functions, grouped by area
+      ├─ Console.ps1   Elevation.ps1  Config.ps1   State.ps1
+      ├─ Download.ps1  Symlink.ps1    Service.ps1  Validation.ps1
+      └─ Operations.ps1  Menu.ps1
+```
+
+Deploy by copying `Update-Nginx.ps1` **and** the `NginxUpdater\` folder together (keep them
+side by side — the launcher finds the module via its own folder). You can also
+`Import-Module .\NginxUpdater\NginxUpdater.psd1` and call `Invoke-NginxUpdater` directly.
+
 ## Managed layout
 
 ```
