@@ -19,6 +19,7 @@
     }
     $installed = Get-InstalledVersions $Config.Root
     Write-Host ('  Staged versions: {0}' -f (($installed -join ', ') -replace '^$', '(none)'))
+    Write-Host ('  Backups        : {0}' -f (Get-ConfHtmlBackup $Config.Root).Count)
     $svcName = Coalesce $Config.ServiceName '(none)'
     $svcState = Get-ServiceStatus $Config.ServiceName
     Write-Host ('  Service        : {0}  (status: {1})' -f $svcName, $svcState)
@@ -120,6 +121,7 @@ function Show-Menu {
         }
         default { $items['1'] = @{ Text = 'Scaffold a new managed install here'; Action = 'scaffold' } }
     }
+    $items['b'] = @{ Text = 'Backup / restore conf & html'; Action = 'backup' }
     $items['s'] = @{ Text = 'Show status / diagnostics'; Action = 'status' }
     $items['c'] = @{ Text = 'Configure (root, service, nssm, channel)'; Action = 'configure' }
     $items['r'] = @{ Text = 'Change managed root folder'; Action = 'changeroot' }

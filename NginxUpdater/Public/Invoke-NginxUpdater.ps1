@@ -74,6 +74,7 @@
                 'switch' { Invoke-SwitchVersion $Config $st }
                 'restart' { Restart-NginxService $Config.ServiceName }
                 'reload' { Invoke-ReloadConfig $Config }
+                'backup' { Invoke-BackupMenu $Config }
                 'status' { Show-Status $Config $st }
                 'configure' { Invoke-Configure $Config }
                 'changeroot' {

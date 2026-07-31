@@ -107,6 +107,20 @@ The menu adapts to what it finds in the root:
   the *new* binary (`nginx -t`), repoints the symlink, then prompts for restart. "Switch active
   version" repoints to any already-staged build for instant rollback.
 
+### Backup / restore conf & html
+
+The **`b`** menu option snapshots and restores your content and configuration:
+
+- **Back up** captures `conf\` **and** `html\` together into a timestamped snapshot under
+  `<root>\backups\<yyyyMMdd-HHmmss>\`.
+- **Restore** lists the snapshots (newest first) and lets you restore `conf`, `html`, or **both**
+  from any of them. Restores are recursive (nested folders like `html\css\` come back intact).
+- **Every restore takes a fresh `-pre-restore` backup of the current state first**, so a restore is
+  always reversible. After a `conf` restore it offers to `nginx -s reload` so the change takes effect.
+
+Backups live under `<root>\backups\` and never interfere with `versions\` or state detection; prune
+old snapshots yourself whenever you like.
+
 ### The restart prompt
 
 After an upgrade the new binary is linked but the running process is still on the old one. You get:
