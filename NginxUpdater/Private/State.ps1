@@ -104,13 +104,19 @@ function Get-InstalledVersions {
     #>
     param([string]$RootPath)
     $versionsPath = Join-Path $RootPath $script:VersionsDir
-    if (-not (Test-Path -LiteralPath $versionsPath)) { return @() }
-    return @(
-        Get-ChildItem -LiteralPath $versionsPath -Directory -ErrorAction SilentlyContinue |
-            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'nginx.exe') } |
-                Sort-Object { [version]($_.Name -replace '[^0-9.].*$', '') } -ErrorAction SilentlyContinue |
-                    Select-Object -ExpandProperty Name
-    )
+    $names = @()
+    if (Test-Path -LiteralPath $versionsPath) {
+        $names = @(
+            Get-ChildItem -LiteralPath $versionsPath -Directory -ErrorAction SilentlyContinue |
+                Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'nginx.exe') } |
+                    Sort-Object { [version]($_.Name -replace '[^0-9.].*$', '') } -ErrorAction SilentlyContinue |
+                        Select-Object -ExpandProperty Name
+        )
+    }
+    # Leading comma keeps this an array at the call site. Without it, a 0/1-element result unwraps
+    # to $null/scalar, and Windows PowerShell 5.1 scalars have no .Count under StrictMode. Do NOT
+    # "simplify" to `return $names`.
+    return , $names
 }
 
 function Get-ActiveVersion {

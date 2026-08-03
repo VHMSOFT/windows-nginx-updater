@@ -64,19 +64,25 @@ function Get-ConfHtmlBackup {
     #>
     param([string]$RootPath)
     $backupRoot = Get-BackupRoot $RootPath
-    if (-not (Test-Path -LiteralPath $backupRoot)) { return @() }
-    return @(
-        Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue |
-            Sort-Object Name -Descending |
-                ForEach-Object {
-                    [pscustomobject]@{
-                        Name    = $_.Name
-                        Path    = $_.FullName
-                        HasConf = Test-Path -LiteralPath (Join-Path $_.FullName 'conf')
-                        HasHtml = Test-Path -LiteralPath (Join-Path $_.FullName 'html')
+    $snapshots = @()
+    if (Test-Path -LiteralPath $backupRoot) {
+        $snapshots = @(
+            Get-ChildItem -LiteralPath $backupRoot -Directory -ErrorAction SilentlyContinue |
+                Sort-Object Name -Descending |
+                    ForEach-Object {
+                        [pscustomobject]@{
+                            Name    = $_.Name
+                            Path    = $_.FullName
+                            HasConf = Test-Path -LiteralPath (Join-Path $_.FullName 'conf')
+                            HasHtml = Test-Path -LiteralPath (Join-Path $_.FullName 'html')
+                        }
                     }
-                }
-    )
+        )
+    }
+    # Leading comma keeps this an array at the call site. Without it, a 0/1-element result unwraps
+    # to $null/scalar, and Windows PowerShell 5.1 scalars have no .Count under StrictMode. Do NOT
+    # "simplify" to `return $snapshots`.
+    return , $snapshots
 }
 
 function Restore-ConfHtml {
