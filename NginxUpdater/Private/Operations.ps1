@@ -196,13 +196,49 @@ function Invoke-RestartPrompt {
     Write-Host '  3) Reload config only (nginx -s reload - does NOT swap the binary)'
     $c = Read-Menu 'Choice'
     switch ($c) {
-        '1' {
-            try { Restart-NginxService $svc; Write-Good 'New binary is now live.' }
-            catch { Write-Err "Restart failed: $($_.Exception.Message)" }
-        }
+        '1' { if (Invoke-CheckedRestart $Config) { Write-Good 'New binary is now live.' } }
         '2' { Write-Info 'OK - the new binary will activate on the next service restart / reboot.' }
         '3' { Invoke-ReloadConfig $Config }
         default { Write-Info 'No action taken; new binary activates on next restart.' }
+    }
+}
+
+function Invoke-TestConfig {
+    <#
+    .SYNOPSIS
+        Tests the live config against the active nginx.exe (nginx -t) and reports the result.
+    #>
+    param([hashtable]$Config)
+    Write-Head "Test config: $($Config.Root)"
+    Test-NginxConfig -RootPath $Config.Root | Out-Null
+}
+
+function Invoke-CheckedRestart {
+    <#
+    .SYNOPSIS
+        Restarts nginx, but only after a passing config test - or an explicit forced override.
+    .DESCRIPTION
+        Runs nginx -t against the active binary first. On failure it warns and asks whether to force
+        the restart anyway (default No); refusing leaves the service untouched. Returns $true only if
+        a restart actually happened.
+    #>
+    param([hashtable]$Config)
+    $svc = $Config.ServiceName
+    if (-not $svc) { Write-Err 'No service name configured.'; return $false }
+
+    if (-not (Test-NginxConfig -RootPath $Config.Root)) {
+        Write-Warn 'Config test FAILED - restarting now risks nginx failing to come back up.'
+        if (-not (Confirm-YesNo 'Force restart anyway despite the failed config test?' $false)) {
+            Write-Info 'Restart cancelled. Fix the config (or restore a backup), then retry.'
+            return $false
+        }
+    }
+    try {
+        Restart-NginxService $svc
+        return $true
+    } catch {
+        Write-Err "Restart failed: $($_.Exception.Message)"
+        return $false
     }
 }
 

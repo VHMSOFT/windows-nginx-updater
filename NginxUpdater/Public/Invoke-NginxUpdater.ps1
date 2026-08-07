@@ -18,6 +18,8 @@
         Print state and diagnostics, then exit (no interactive menu).
     .PARAMETER LauncherPath
         Path to the launcher script, used when relaunching elevated.
+    .PARAMETER SkipUpdateCheck
+        Skip the startup self-update check (for offline or locked-down servers).
     .EXAMPLE
         Invoke-NginxUpdater -Root C:\nginx
     #>
@@ -29,7 +31,8 @@
         [ValidateSet('stable', 'mainline', 'ask')]
         [string]$Channel = 'ask',
         [switch]$Status,
-        [string]$LauncherPath
+        [string]$LauncherPath,
+        [switch]$SkipUpdateCheck
     )
 
     # Record the invocation for a possible elevation relaunch (module functions cannot read the
@@ -63,6 +66,9 @@
         return
     }
 
+    # Best-effort self-update check (warns and continues on any failure).
+    if (-not $SkipUpdateCheck) { Invoke-SelfUpdateCheck }
+
     while ($true) {
         $st = Get-RootState $Config.Root
         $action = Show-Menu $Config $st
@@ -72,9 +78,11 @@
                 'migrate' { Invoke-Migrate $Config $st }
                 'update' { Invoke-Update $Config $st }
                 'switch' { Invoke-SwitchVersion $Config $st }
-                'restart' { Restart-NginxService $Config.ServiceName }
+                'restart' { Invoke-CheckedRestart $Config | Out-Null }
+                'test' { Invoke-TestConfig $Config }
                 'reload' { Invoke-ReloadConfig $Config }
                 'backup' { Invoke-BackupMenu $Config }
+                'selfupdate' { if (Invoke-SelfUpdateApply) { return } }
                 'status' { Show-Status $Config $st }
                 'configure' { Invoke-Configure $Config }
                 'changeroot' {

@@ -25,6 +25,22 @@ $script:DownloadBase = 'https://nginx.org/download'          # /nginx-<ver>.zip
 $script:ConfigFileName = '.nginx-updater.json'                # stored inside the root
 $script:VersionsDir = 'versions'
 $script:Invocation = @{}                                      # original args, for elevation relaunch
+$script:ModuleRoot = $PSScriptRoot                            # this module's folder
+$script:PendingUpdate = $null                                 # set by the self-updater when one is staged
+
+# Self-update: repo release APIs, primary first. Each install records per-mirror health and prefers
+# a mirror that last worked (see SelfUpdate.ps1).
+$script:RepoWeb = 'https://git.jfs743.com/JFs743/windows-nginx-updater'
+$script:Mirrors = @(
+    [pscustomobject]@{
+        Name       = 'forgejo'
+        ReleaseApi = 'https://git.jfs743.com/api/v1/repos/JFs743/windows-nginx-updater/releases/latest'
+    }
+    [pscustomobject]@{
+        Name       = 'github'
+        ReleaseApi = 'https://api.github.com/repos/JFs743/windows-nginx-updater/releases/latest'
+    }
+)
 
 # $IsWindows is a PS7 automatic variable that does NOT exist in Windows PowerShell 5.1
 # (referencing it under StrictMode would throw). Detect it safely: absent => we are on 5.1,

@@ -109,6 +109,13 @@ function Show-Menu {
     Write-Host $line -ForegroundColor Gray
     Write-Host ('-' * 70) -ForegroundColor DarkGray
 
+    if ($script:PendingUpdate) {
+        $banner = ' ** Tool update v{0} downloaded (from {1}) - press u to apply and restart ** ' -f `
+            $script:PendingUpdate.Version, $script:PendingUpdate.Mirror
+        Write-Host $banner -ForegroundColor Black -BackgroundColor Yellow
+        Write-Host ('-' * 70) -ForegroundColor DarkGray
+    }
+
     $items = [ordered]@{}
     switch ($StateInfo.State) {
         'Empty' { $items['1'] = @{ Text = 'Scaffold a new managed install here'; Action = 'scaffold' } }
@@ -116,12 +123,19 @@ function Show-Menu {
         'Managed' {
             $items['1'] = @{ Text = 'Check for updates / install a version'; Action = 'update' }
             $items['2'] = @{ Text = 'Switch active version (rollback/forward)'; Action = 'switch' }
-            $items['3'] = @{ Text = 'Restart nginx now'; Action = 'restart' }
-            $items['4'] = @{ Text = 'Reload config (nginx -s reload)'; Action = 'reload' }
+            $items['3'] = @{ Text = 'Restart nginx now (tests config first)'; Action = 'restart' }
+            $items['4'] = @{ Text = 'Test config (nginx -t)'; Action = 'test' }
+            $items['5'] = @{ Text = 'Reload config (nginx -s reload)'; Action = 'reload' }
         }
         default { $items['1'] = @{ Text = 'Scaffold a new managed install here'; Action = 'scaffold' } }
     }
     $items['b'] = @{ Text = 'Backup / restore conf & html'; Action = 'backup' }
+    if ($script:PendingUpdate) {
+        $items['u'] = @{
+            Text   = ('Apply tool update to v{0} and restart' -f $script:PendingUpdate.Version)
+            Action = 'selfupdate'
+        }
+    }
     $items['s'] = @{ Text = 'Show status / diagnostics'; Action = 'status' }
     $items['c'] = @{ Text = 'Configure (root, service, nssm, channel)'; Action = 'configure' }
     $items['r'] = @{ Text = 'Change managed root folder'; Action = 'changeroot' }

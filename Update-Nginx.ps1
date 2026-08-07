@@ -18,6 +18,8 @@
     Release channel default: 'stable', 'mainline', or 'ask'.
 .PARAMETER Status
     Skip the interactive menu and just report state, then exit.
+.PARAMETER SkipUpdateCheck
+    Skip the startup self-update check (for offline or locked-down servers).
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\Update-Nginx.ps1 -Root C:\nginx
 .NOTES
@@ -32,7 +34,8 @@ param(
     [string]$ServiceName,
     [ValidateSet('stable', 'mainline', 'ask')]
     [string]$Channel = 'ask',
-    [switch]$Status
+    [switch]$Status,
+    [switch]$SkipUpdateCheck
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,4 +47,4 @@ if (-not (Test-Path -LiteralPath $manifest)) {
 Import-Module $manifest -Force
 
 Invoke-NginxUpdater -Root $Root -NssmPath $NssmPath -ServiceName $ServiceName -Channel $Channel `
-    -Status:$Status -LauncherPath $PSCommandPath
+    -Status:$Status -SkipUpdateCheck:$SkipUpdateCheck -LauncherPath $PSCommandPath

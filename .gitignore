@@ -1,3 +1,10 @@
+# Build output
+dist/
+
+# Per-install runtime state (never committed)
+.update/
+.nginx-updater-selfupdate.json
+
 # macOS
 .DS_Store
 

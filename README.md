@@ -107,6 +107,13 @@ The menu adapts to what it finds in the root:
   the *new* binary (`nginx -t`), repoints the symlink, then prompts for restart. "Switch active
   version" repoints to any already-staged build for instant rollback.
 
+The Managed menu also has **Test config** (`nginx -t` against the active binary) right next to
+**Restart**. Every restart — the menu one *and* the post-upgrade prompt — **tests the config first**
+and refuses if it fails: you get the failure output, then a *"force restart anyway?"* prompt that
+**defaults to No**. Pass/fail is read from nginx's **exit code**, not its text, because `nginx -t`
+prints `syntax is ok` on the first line even when a later error (e.g. a missing `events` section)
+makes the overall test fail.
+
 ### Backup / restore conf & html
 
 The **`b`** menu option snapshots and restores your content and configuration:
@@ -133,6 +140,21 @@ After an upgrade the new binary is linked but the running process is still on th
 > dance) is **not supported on Windows**. The symlink approach gives you the next best thing: all the
 > disruptive work (download, extract, relink) happens with zero impact on the running server, and the
 > only interruption is a single fast service restart you choose the timing of.
+
+### Self-update
+
+On startup the tool checks its own repo for a newer release and, if found, downloads it and shows a
+banner with a **`u`** menu option to apply it (which replaces the tool files and relaunches). If the
+check fails — offline, proxy, repo down — it **warns and continues**; nothing blocks.
+
+- **Mirrors:** it checks Forgejo (primary) then GitHub (mirror). Each install records per-mirror
+  health in `<toolDir>\.nginx-updater-selfupdate.json` and prefers the mirror that last worked,
+  only falling back to a previously-failed one as a last resort.
+- **What "newer" means:** the release tag (e.g. `v1.2.0`) vs the installed `ModuleVersion`.
+- **Skip it:** run with `-SkipUpdateCheck` on locked-down/offline servers.
+- Staged downloads and a pre-update backup live under `<toolDir>\.update\`.
+
+See [RELEASING.md](RELEASING.md) for cutting releases and the Forgejo→GitHub mirror setup.
 
 ## Deploying to ~12 servers
 

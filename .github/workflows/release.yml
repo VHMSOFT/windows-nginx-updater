@@ -1,0 +1,28 @@
+name: Release
+
+# Build the minimal-files zip and publish it as a GitHub release whenever a v* tag is pushed.
+# Code + tags reach GitHub via the Forgejo push-mirror (see RELEASING.md), which is what
+# triggers this workflow on the mirror.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release zip
+        shell: pwsh
+        run: ./build/New-Release.ps1 -OutputDir dist
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

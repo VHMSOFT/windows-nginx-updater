@@ -1,0 +1,41 @@
+name: Release
+
+# Build the minimal-files zip and publish it as a Forgejo release when a v* tag is pushed.
+# This is the primary/source host; the same tag is mirrored to GitHub, where the parallel
+# .github/workflows/release.yml builds an equivalent release. See RELEASING.md.
+#
+# NOTE: adjust `runs-on` to a label your Forgejo runner offers, and confirm the runner image
+# provides `zip`. The forgejo-release action and ${{ secrets.GITHUB_TOKEN }} are provided by
+# Forgejo Actions; if your instance differs, see the manual fallback in RELEASING.md.
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: v
+        run: |
+          VERSION=$(grep -oE "ModuleVersion[^']*'[0-9.]+'" NginxUpdater/NginxUpdater.psd1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build release zip
+        run: |
+          mkdir -p dist
+          zip -r "dist/windows-nginx-updater-${{ steps.v.outputs.version }}.zip" \
+            runAsAdmin.cmd Update-Nginx.ps1 NginxUpdater
+
+      - name: Publish Forgejo release
+        uses: https://code.forgejo.org/actions/forgejo-release@v2
+        with:
+          direction: upload
+          url: ${{ github.server_url }}
+          repo: ${{ github.repository }}
+          tag: ${{ github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release-dir: dist
