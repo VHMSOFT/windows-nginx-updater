@@ -150,50 +150,98 @@ function Get-OrderedMirror {
     return @($good + $unknown + $bad)
 }
 
+function Get-WebStatusCode {
+    <#
+    .SYNOPSIS
+        Best-effort HTTP status code from a thrown web exception (works on PS 5.1 and 7), or $null.
+    .DESCRIPTION
+        PS 5.1 throws a WebException whose Response is an HttpWebResponse; PS 7 throws an
+        HttpResponseException with a Response.StatusCode. Both expose Response.StatusCode as an enum
+        that casts to the numeric code. Returns $null when there is no HTTP response (DNS, TLS, timeout).
+    #>
+    param($ErrorRecord)
+    try {
+        $ex = $ErrorRecord.Exception
+        if ($ex -and ($ex.PSObject.Properties.Name -contains 'Response') -and $ex.Response) {
+            $status = $ex.Response.StatusCode
+            if ($null -ne $status) { return [int]$status }
+        }
+    } catch {
+        Write-Verbose 'Could not read HTTP status from the error.'
+    }
+    return $null
+}
+
 function Get-LatestRelease {
     <#
     .SYNOPSIS
-        Queries one mirror's releases/latest endpoint and returns version + .zip asset URL.
+        Queries one mirror's releases/latest endpoint. Returns a status object, never throws.
+    .DESCRIPTION
+        Distinguishes "reached the mirror but no usable release" (a 404 when the repo has no
+        releases yet, or a release lacking a .zip asset) from "could not reach the mirror" (DNS/TLS/
+        timeout). Reachable is $true whenever the server answered at the HTTP level. Release holds the
+        parsed release when one is usable, otherwise $null with a human-readable Reason.
     #>
     param([pscustomobject]$Mirror)
     $headers = @{ 'User-Agent' = 'windows-nginx-updater'; 'Accept' = 'application/json' }
-    $resp = Invoke-RestMethod -Uri $Mirror.ReleaseApi -Headers $headers -TimeoutSec 15
-    if (-not $resp -or -not $resp.tag_name) { throw 'no release found' }
+    $out = [pscustomobject]@{ Mirror = $Mirror.Name; Reachable = $false; Release = $null; Reason = $null }
+    try {
+        $resp = Invoke-RestMethod -Uri $Mirror.ReleaseApi -Headers $headers -TimeoutSec 15
+    } catch {
+        $code = Get-WebStatusCode $_
+        $out.Reachable = ($null -ne $code)
+        $out.Reason = if ($code -eq 404) { 'no release published yet' } else { $_.Exception.Message }
+        return $out
+    }
+    # The server answered - it is reachable regardless of whether a usable release is present.
+    $out.Reachable = $true
+    if (-not $resp -or -not $resp.tag_name) { $out.Reason = 'no release published yet'; return $out }
     $verStr = ([string]$resp.tag_name) -replace '^v', ''
-    if ($verStr -notmatch '^[0-9]+\.[0-9]+\.[0-9]+') { throw "unexpected tag '$($resp.tag_name)'" }
+    if ($verStr -notmatch '^[0-9]+\.[0-9]+\.[0-9]+') {
+        $out.Reason = "unexpected tag '$($resp.tag_name)'"; return $out
+    }
     $asset = $null
     if ($resp.PSObject.Properties.Name -contains 'assets' -and $resp.assets) {
         $asset = @($resp.assets | Where-Object { $_.name -match '\.zip$' })[0]
     }
-    if (-not $asset -or -not $asset.browser_download_url) { throw 'release has no .zip asset' }
-    return [pscustomobject]@{
+    if (-not $asset -or -not $asset.browser_download_url) {
+        $out.Reason = 'release has no .zip asset'; return $out
+    }
+    $out.Release = [pscustomobject]@{
         Mirror  = $Mirror.Name
         Version = [version]($verStr -replace '(\+.*|-.*)$', '')
         ZipUrl  = [string]$asset.browser_download_url
         ZipName = [string]$asset.name
     }
+    return $out
 }
 
 function Get-LatestReleaseAcrossMirrors {
     <#
     .SYNOPSIS
-        Returns the newest release from the first healthy mirror (health-ordered), or $null if all
-        mirrors fail. Updates and saves per-mirror health.
+        Tries each mirror (health-ordered) and reports the outcome. Updates and saves mirror health.
+    .DESCRIPTION
+        Returns an object with: Release (first usable release found, or $null); Reachable ($true if
+        ANY mirror answered at the HTTP level, so "no release yet" is not mistaken for "offline");
+        and Failures (per-mirror reasons for diagnosis). A mirror that answers is marked 'ok' even
+        when it has no release, since it is healthy; only a true connection failure marks it 'fail'.
     #>
     param([string]$ToolDir, [hashtable]$State)
-    $release = $null
+    $outcome = [pscustomobject]@{ Release = $null; Reachable = $false; Failures = @() }
     foreach ($m in (Get-OrderedMirror -State $State)) {
-        try {
-            $release = Get-LatestRelease -Mirror $m
+        $r = Get-LatestRelease -Mirror $m
+        if ($r.Reachable) {
             $State.Mirrors[$m.Name] = 'ok'
-            break
-        } catch {
+            $outcome.Reachable = $true
+            if ($r.Release) { $outcome.Release = $r.Release; break }
+        } else {
             $State.Mirrors[$m.Name] = 'fail'
-            Write-Verbose ('Mirror {0} failed: {1}' -f $m.Name, $_.Exception.Message)
         }
+        $outcome.Failures += [pscustomobject]@{ Mirror = $m.Name; Reason = $r.Reason }
+        Write-Verbose ('Mirror {0}: {1}' -f $m.Name, $r.Reason)
     }
     Save-SelfUpdateState -ToolDir $ToolDir -State $State
-    return $release
+    return $outcome
 }
 
 function Save-UpdatePackage {
@@ -245,15 +293,22 @@ function Invoke-SelfUpdateCheck {
 
     Write-Info 'Checking for tool updates...'
     $state = Import-SelfUpdateState -ToolDir $toolDir
-    $release = $null
+    $outcome = $null
     try {
-        $release = Get-LatestReleaseAcrossMirrors -ToolDir $toolDir -State $state
+        $outcome = Get-LatestReleaseAcrossMirrors -ToolDir $toolDir -State $state
     } catch {
         Write-Warn "Update check failed ($($_.Exception.Message)). Continuing."
         return
     }
+    $release = $outcome.Release
     if (-not $release) {
-        Write-Warn 'Update check failed on all mirrors. Continuing.'
+        if ($outcome.Reachable) {
+            # A mirror answered - there simply is no newer release to install. Not an error.
+            Write-Verbose 'No tool release is published yet.'
+        } else {
+            Write-Warn 'Update check could not reach any mirror. Continuing.'
+            foreach ($f in $outcome.Failures) { Write-Warn ('  {0}: {1}' -f $f.Mirror, $f.Reason) }
+        }
         return
     }
 
