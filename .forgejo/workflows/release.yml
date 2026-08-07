@@ -8,8 +8,8 @@ name: Release
 # Bump keyword in the triggering commit message (case-insensitive):
 #   contains "major" or "BREAKING" -> major   |   contains "minor" or "feat" -> minor   |   else patch
 #
-# Runner requirements: git, zip, curl, jq in the image; repo Actions enabled; the per-run
-# ${{ secrets.GITHUB_TOKEN }} needs write access. Adjust `runs-on` to a label your runner offers.
+# Deliberately depends only on `git` and `node`, both present on the default act runner image, so
+# it does NOT need zip/jq/curl (the zip is made with `git archive`, the API calls use node https).
 on:
   push:
     branches: [main]
@@ -26,7 +26,7 @@ jobs:
       - name: Compute next version and notes
         id: v
         run: |
-          set -euo pipefail
+          set -eu
           LAST=$(git tag --list 'v*' --sort=-v:refname | head -n1 || true)
           [ -z "$LAST" ] && LAST="v0.0.0"
           BASE=${LAST#v}
@@ -42,39 +42,22 @@ jobs:
           fi
           NEW="$MAJ.$MIN.$PAT"
           echo "version=$NEW" >> "$GITHUB_OUTPUT"
-          echo "last=$LAST" >> "$GITHUB_OUTPUT"
-          if [ "$LAST" = "v0.0.0" ]; then RANGE=""; else RANGE="$LAST..HEAD"; fi
-          # shellcheck disable=SC2086
-          NOTES=$(git log $RANGE --pretty=format:'- %s')
-          {
-            echo "notes<<EOF_NOTES"
-            echo "$NOTES"
-            echo "EOF_NOTES"
-          } >> "$GITHUB_OUTPUT"
           echo "Next version: v$NEW (from $LAST)"
+          if [ "$LAST" = "v0.0.0" ]; then RANGE=""; else RANGE="$LAST..HEAD"; fi
+          # Notes go to a file so the release step can read them without shell/JSON escaping.
+          git log $RANGE --pretty=format:'- %s' > release-notes.txt || true
 
-      - name: Build release zip
+      - name: Build release zip (git archive - no zip binary needed)
         run: |
+          set -eu
           mkdir -p dist
-          zip -r "dist/windows-nginx-updater-${{ steps.v.outputs.version }}.zip" \
-            runAsAdmin.cmd Update-Nginx.ps1 NginxUpdater
+          git archive --format=zip -o "dist/windows-nginx-updater-${{ steps.v.outputs.version }}.zip" \
+            HEAD runAsAdmin.cmd Update-Nginx.ps1 NginxUpdater
 
-      - name: Create tag + release and upload asset
-        run: |
-          set -euo pipefail
-          API="${{ github.server_url }}/api/v1/repos/${{ github.repository }}"
-          TOKEN="${{ secrets.GITHUB_TOKEN }}"
-          VER="${{ steps.v.outputs.version }}"
-          ZIP="dist/windows-nginx-updater-$VER.zip"
-          BODY=$(jq -n --arg tag "v$VER" --arg tgt "${{ github.sha }}" --arg name "v$VER" \
-            --arg body "${{ steps.v.outputs.notes }}" \
-            '{tag_name:$tag, target_commitish:$tgt, name:$name, body:$body}')
-          REL=$(curl -sS -X POST "$API/releases" \
-            -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' -d "$BODY")
-          ID=$(printf '%s' "$REL" | jq -r '.id // empty')
-          if [ -z "$ID" ]; then echo "Failed to create release: $REL"; exit 1; fi
-          echo "Created release id=$ID for v$VER"
-          curl -sS -X POST "$API/releases/$ID/assets?name=$(basename "$ZIP")" \
-            -H "Authorization: token $TOKEN" \
-            -F "attachment=@$ZIP;type=application/zip" >/dev/null
-          echo "Uploaded $ZIP"
+      - name: Create tag + release and upload asset (node, built-in https)
+        env:
+          FORGE_API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          FORGE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VER: ${{ steps.v.outputs.version }}
+          SHA: ${{ github.sha }}
+        run: node build/forge-release.js
