@@ -150,7 +150,11 @@ check fails — offline, proxy, repo down — it **warns and continues**; nothin
 - **Mirrors:** it checks Forgejo (primary) then GitHub (mirror). Each install records per-mirror
   health in `<toolDir>\.nginx-updater-selfupdate.json` and prefers the mirror that last worked,
   only falling back to a previously-failed one as a last resort.
-- **What "newer" means:** the release tag (e.g. `v1.2.0`) vs the installed `ModuleVersion`.
+- **What "newer" means:** the latest release **tag** (e.g. `v1.2.0`) vs the version this install
+  recorded in `<toolDir>\version.txt` when it last updated. The release version is never committed
+  to source — it lives only in the tag — so nothing has to be stamped or committed to ship.
+- **First run:** with no `version.txt`, it downloads the latest once to establish the baseline (and
+  records it silently if the files already match).
 - **Skip it:** run with `-SkipUpdateCheck` on locked-down/offline servers.
 - Staged downloads and a pre-update backup live under `<toolDir>\.update\`.
 

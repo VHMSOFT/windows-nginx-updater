@@ -10,18 +10,72 @@
     return (Split-Path -Parent $script:ModuleRoot)
 }
 
-function Get-ToolVersion {
+function Get-VersionFilePath {
     <#
     .SYNOPSIS
-        Returns the installed tool version (ModuleVersion from the manifest), or 0.0.0 on failure.
+        Path to this install's version marker - the release tag it is currently running.
     #>
+    param([string]$ToolDir)
+    return (Join-Path $ToolDir 'version.txt')
+}
+
+function Get-InstalledToolVersion {
+    <#
+    .SYNOPSIS
+        Reads the installed version from version.txt, or $null when unknown (a first run).
+    .DESCRIPTION
+        The installed version is tracked locally here rather than read from the manifest, so
+        releases never need the version committed to source and both mirrors stay consistent.
+    #>
+    param([string]$ToolDir)
+    $path = Get-VersionFilePath $ToolDir
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
     try {
-        $manifest = Join-Path $script:ModuleRoot 'NginxUpdater.psd1'
-        $data = Import-PowerShellDataFile -LiteralPath $manifest
-        return [version]$data.ModuleVersion
+        $raw = ((Get-Content -LiteralPath $path -Raw) -replace '^\s*v', '').Trim()
+        if ($raw -match '^[0-9]+\.[0-9]+') { return [version]($raw -replace '(\+.*|-.*)$', '') }
     } catch {
-        Write-Verbose 'Could not read ModuleVersion from the manifest.'
-        return [version]'0.0.0'
+        Write-Verbose 'Could not read version.txt.'
+    }
+    return $null
+}
+
+function Set-InstalledToolVersion {
+    <#
+    .SYNOPSIS
+        Records the installed version (release tag) to version.txt.
+    #>
+    param([string]$ToolDir, [string]$Version)
+    try {
+        Set-Content -LiteralPath (Get-VersionFilePath $ToolDir) -Value $Version -Encoding UTF8
+    } catch {
+        Write-Verbose 'Could not write version.txt.'
+    }
+}
+
+function Get-ShippedContentHash {
+    <#
+    .SYNOPSIS
+        Stable SHA-256 over the shipped items in a folder, to tell whether two installs are identical.
+    #>
+    param([string]$Dir)
+    $parts = @()
+    foreach ($name in 'Update-Nginx.ps1', 'NginxUpdater', 'runAsAdmin.cmd') {
+        $path = Join-Path $Dir $name
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        $files = @(Get-ChildItem -LiteralPath $path -Recurse -File -Force -ErrorAction SilentlyContinue |
+                Sort-Object FullName)
+        foreach ($f in $files) {
+            $rel = $f.FullName.Substring($Dir.Length).TrimStart('\', '/')
+            $hash = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash
+            $parts += "$rel=$hash"
+        }
+    }
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes(($parts -join '|'))
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ( -join ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') }))
+    } finally {
+        $sha.Dispose()
     }
 }
 
@@ -120,15 +174,13 @@ function Get-LatestRelease {
     }
 }
 
-function Test-ForUpdate {
+function Get-LatestReleaseAcrossMirrors {
     <#
     .SYNOPSIS
-        Finds the latest release across mirrors (health-ordered) and whether it is newer than local.
-    .DESCRIPTION
-        Updates and saves per-mirror health. Returns $null if every mirror failed.
+        Returns the newest release from the first healthy mirror (health-ordered), or $null if all
+        mirrors fail. Updates and saves per-mirror health.
     #>
     param([string]$ToolDir, [hashtable]$State)
-    $local = Get-ToolVersion
     $release = $null
     foreach ($m in (Get-OrderedMirror -State $State)) {
         try {
@@ -141,12 +193,7 @@ function Test-ForUpdate {
         }
     }
     Save-SelfUpdateState -ToolDir $ToolDir -State $State
-    if (-not $release) { return $null }
-    return [pscustomobject]@{
-        Local   = $local
-        Release = $release
-        IsNewer = ($release.Version -gt $local)
-    }
+    return $release
 }
 
 function Save-UpdatePackage {
@@ -198,47 +245,64 @@ function Invoke-SelfUpdateCheck {
 
     Write-Info 'Checking for tool updates...'
     $state = Import-SelfUpdateState -ToolDir $toolDir
-    $check = $null
+    $release = $null
     try {
-        $check = Test-ForUpdate -ToolDir $toolDir -State $state
+        $release = Get-LatestReleaseAcrossMirrors -ToolDir $toolDir -State $state
     } catch {
         Write-Warn "Update check failed ($($_.Exception.Message)). Continuing."
         return
     }
-    if (-not $check) {
+    if (-not $release) {
         Write-Warn 'Update check failed on all mirrors. Continuing.'
         return
     }
-    if (-not $check.IsNewer) {
-        Write-Verbose ('Up to date (v{0}).' -f $check.Local)
+
+    $latest = $release.Version
+    $local = Get-InstalledToolVersion -ToolDir $toolDir
+    if ($local -and $latest -le $local) {
+        Write-Verbose ('Up to date (v{0}).' -f $local)
         return
     }
 
-    $rel = $check.Release
-    Write-Info ('Update available: v{0} (installed v{1}) from the {2} mirror.' -f `
-            $rel.Version, $check.Local, $rel.Mirror)
-
+    # We need the package: it is newer than the recorded version, OR this is a first run with no
+    # version.txt (force-download once to establish the baseline). Reuse a prior staged copy.
     $state = Import-SelfUpdateState -ToolDir $toolDir
-    $alreadyStaged = ($state.StagedVersion -eq $rel.Version.ToString()) -and
+    $reuse = ($state.StagedVersion -eq $latest.ToString()) -and
     $state.StagedPath -and (Test-Path -LiteralPath $state.StagedPath)
-    if ($alreadyStaged) {
+    if ($reuse) {
         $staged = $state.StagedPath
     } else {
         try {
-            Write-Info 'Downloading update...'
-            $staged = Save-UpdatePackage -ToolDir $toolDir -Release $rel
-            $state.StagedVersion = $rel.Version.ToString()
+            Write-Info ('Downloading v{0} from the {1} mirror...' -f $latest, $release.Mirror)
+            $staged = Save-UpdatePackage -ToolDir $toolDir -Release $release
+            $state.StagedVersion = $latest.ToString()
             $state.StagedPath = $staged
             Save-SelfUpdateState -ToolDir $toolDir -State $state
-            Write-Good 'Update downloaded and staged.'
         } catch {
             Write-Warn "Could not download the update ($($_.Exception.Message)). Continuing."
             return
         }
     }
+
+    if (-not $local) {
+        # First run: if the downloaded release is byte-for-byte what is already installed, just record
+        # the baseline silently; otherwise fall through and offer it as an update to apply.
+        if ((Get-ShippedContentHash -Dir $staged) -eq (Get-ShippedContentHash -Dir $toolDir)) {
+            Set-InstalledToolVersion -ToolDir $toolDir -Version $latest.ToString()
+            $state.StagedVersion = $null
+            $state.StagedPath = $null
+            Save-SelfUpdateState -ToolDir $toolDir -State $state
+            Remove-Item -LiteralPath $staged -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Verbose ('Baseline recorded: v{0} (already current).' -f $latest)
+            return
+        }
+    }
+
+    Write-Info ('Update ready: v{0} (installed {1}) from the {2} mirror.' -f `
+            $latest, (Coalesce $local 'unknown'), $release.Mirror)
     $script:PendingUpdate = [pscustomobject]@{
-        Version   = $rel.Version.ToString()
-        Mirror    = $rel.Mirror
+        Version   = $latest.ToString()
+        Mirror    = $release.Mirror
         StagedDir = $staged
         ToolDir   = $toolDir
     }
@@ -293,6 +357,8 @@ function Invoke-SelfUpdateApply {
         return $false
     }
 
+    # Record the newly-installed version locally; this is the source of truth for future checks.
+    Set-InstalledToolVersion -ToolDir $toolDir -Version $pending.Version
     $state = Import-SelfUpdateState -ToolDir $toolDir
     $state.StagedVersion = $null
     $state.StagedPath = $null

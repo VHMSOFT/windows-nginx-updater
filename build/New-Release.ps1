@@ -15,7 +15,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$OutputDir
+    [string]$OutputDir,
+    [string]$Version
 )
 
 Set-StrictMode -Version Latest
@@ -25,9 +26,15 @@ $ProgressPreference = 'SilentlyContinue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $OutputDir) { $OutputDir = Join-Path $repoRoot 'dist' }
 
-$manifestPath = Join-Path $repoRoot 'NginxUpdater\NginxUpdater.psd1'
-if (-not (Test-Path -LiteralPath $manifestPath)) { throw "Manifest not found: $manifestPath" }
-$version = (Import-PowerShellDataFile -LiteralPath $manifestPath).ModuleVersion
+# Version names the zip only (the client tracks its version via version.txt, not the manifest).
+# CI passes -Version from the release tag; locally it falls back to the manifest ModuleVersion.
+if ($Version) {
+    $version = $Version -replace '^v', ''
+} else {
+    $manifestPath = Join-Path $repoRoot 'NginxUpdater\NginxUpdater.psd1'
+    if (-not (Test-Path -LiteralPath $manifestPath)) { throw "Manifest not found: $manifestPath" }
+    $version = (Import-PowerShellDataFile -LiteralPath $manifestPath).ModuleVersion
+}
 Write-Host "Building windows-nginx-updater v$version" -ForegroundColor Cyan
 
 # The minimal set an install needs to run and self-update.
@@ -45,7 +52,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $repoRoot $i) -Destination $stage -Recurse -Force
     }
     # Drop any per-install state that must never ship in a release.
-    foreach ($junk in '.update', '.nginx-updater-selfupdate.json', '.nginx-updater.json') {
+    foreach ($junk in '.update', '.nginx-updater-selfupdate.json', '.nginx-updater.json', 'version.txt') {
         $p = Join-Path $stage $junk
         if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
     }

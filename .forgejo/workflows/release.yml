@@ -1,28 +1,57 @@
 name: Release
 
-# Build the minimal-files zip and publish it as a Forgejo release when a v* tag is pushed.
-# This is the primary/source host; the same tag is mirrored to GitHub, where the parallel
-# .github/workflows/release.yml builds an equivalent release. See RELEASING.md.
+# On every push to main: compute the next version from the latest commit message, create that tag,
+# and publish a Forgejo release whose notes are the commit subjects since the previous release.
+# Nothing is committed back - installs track their own version in version.txt, so the release
+# version lives only in the git tag. The tag is mirrored to GitHub, which builds its own release.
 #
-# NOTE: adjust `runs-on` to a label your Forgejo runner offers, and confirm the runner image
-# provides `zip`. The forgejo-release action and ${{ secrets.GITHUB_TOKEN }} are provided by
-# Forgejo Actions; if your instance differs, see the manual fallback in RELEASING.md.
+# Bump keyword in the triggering commit message (case-insensitive):
+#   contains "major" or "BREAKING" -> major   |   contains "minor" or "feat" -> minor   |   else patch
+#
+# Runner requirements: git, zip, curl, jq in the image; repo Actions enabled; the per-run
+# ${{ secrets.GITHUB_TOKEN }} needs write access. Adjust `runs-on` to a label your runner offers.
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+  workflow_dispatch: {}
 
 jobs:
   release:
     runs-on: docker
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history + tags to compute the bump and the notes
 
-      - name: Determine version
+      - name: Compute next version and notes
         id: v
         run: |
-          VERSION=$(grep -oE "ModuleVersion[^']*'[0-9.]+'" NginxUpdater/NginxUpdater.psd1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          LAST=$(git tag --list 'v*' --sort=-v:refname | head -n1 || true)
+          [ -z "$LAST" ] && LAST="v0.0.0"
+          BASE=${LAST#v}
+          MAJ=$(echo "$BASE" | cut -d. -f1); MIN=$(echo "$BASE" | cut -d. -f2); PAT=$(echo "$BASE" | cut -d. -f3)
+          MAJ=${MAJ:-0}; MIN=${MIN:-0}; PAT=${PAT:-0}
+          MSG=$(git log -1 --pretty=%B)
+          if echo "$MSG" | grep -qiE 'major|BREAKING'; then
+            MAJ=$((MAJ+1)); MIN=0; PAT=0
+          elif echo "$MSG" | grep -qiE 'minor|feat'; then
+            MIN=$((MIN+1)); PAT=0
+          else
+            PAT=$((PAT+1))
+          fi
+          NEW="$MAJ.$MIN.$PAT"
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "last=$LAST" >> "$GITHUB_OUTPUT"
+          if [ "$LAST" = "v0.0.0" ]; then RANGE=""; else RANGE="$LAST..HEAD"; fi
+          # shellcheck disable=SC2086
+          NOTES=$(git log $RANGE --pretty=format:'- %s')
+          {
+            echo "notes<<EOF_NOTES"
+            echo "$NOTES"
+            echo "EOF_NOTES"
+          } >> "$GITHUB_OUTPUT"
+          echo "Next version: v$NEW (from $LAST)"
 
       - name: Build release zip
         run: |
@@ -30,12 +59,22 @@ jobs:
           zip -r "dist/windows-nginx-updater-${{ steps.v.outputs.version }}.zip" \
             runAsAdmin.cmd Update-Nginx.ps1 NginxUpdater
 
-      - name: Publish Forgejo release
-        uses: https://code.forgejo.org/actions/forgejo-release@v2
-        with:
-          direction: upload
-          url: ${{ github.server_url }}
-          repo: ${{ github.repository }}
-          tag: ${{ github.ref_name }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          release-dir: dist
+      - name: Create tag + release and upload asset
+        run: |
+          set -euo pipefail
+          API="${{ github.server_url }}/api/v1/repos/${{ github.repository }}"
+          TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          VER="${{ steps.v.outputs.version }}"
+          ZIP="dist/windows-nginx-updater-$VER.zip"
+          BODY=$(jq -n --arg tag "v$VER" --arg tgt "${{ github.sha }}" --arg name "v$VER" \
+            --arg body "${{ steps.v.outputs.notes }}" \
+            '{tag_name:$tag, target_commitish:$tgt, name:$name, body:$body}')
+          REL=$(curl -sS -X POST "$API/releases" \
+            -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' -d "$BODY")
+          ID=$(printf '%s' "$REL" | jq -r '.id // empty')
+          if [ -z "$ID" ]; then echo "Failed to create release: $REL"; exit 1; fi
+          echo "Created release id=$ID for v$VER"
+          curl -sS -X POST "$API/releases/$ID/assets?name=$(basename "$ZIP")" \
+            -H "Authorization: token $TOKEN" \
+            -F "attachment=@$ZIP;type=application/zip" >/dev/null
+          echo "Uploaded $ZIP"

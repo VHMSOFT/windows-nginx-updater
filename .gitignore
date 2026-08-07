@@ -4,6 +4,7 @@ dist/
 # Per-install runtime state (never committed)
 .update/
 .nginx-updater-selfupdate.json
+version.txt
 
 # macOS
 .DS_Store

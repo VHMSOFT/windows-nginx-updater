@@ -1,12 +1,14 @@
 name: Release
 
-# Build the minimal-files zip and publish it as a GitHub release whenever a v* tag is pushed.
-# Code + tags reach GitHub via the Forgejo push-mirror (see RELEASING.md), which is what
-# triggers this workflow on the mirror.
+# Builds the minimal-files zip and publishes a GitHub release for a v* tag.
+# Forgejo is the source of truth: it auto-tags on main pushes (see .forgejo/workflows/release.yml)
+# and its push-mirror replicates the tag here, triggering this workflow. workflow_dispatch lets you
+# rebuild a chosen tag manually.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -19,7 +21,7 @@ jobs:
 
       - name: Build release zip
         shell: pwsh
-        run: ./build/New-Release.ps1 -OutputDir dist
+        run: ./build/New-Release.ps1 -OutputDir dist -Version "${{ github.ref_name }}"
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
