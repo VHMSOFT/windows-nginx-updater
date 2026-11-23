@@ -91,6 +91,10 @@
         return
     }
     $Config = Import-Config -RootPath $rootPath -Defaults $seed
+    # An nsnssmcm.json next to nginx.exe is the source of truth for service name / nssm path.
+    if (Use-NsnssmcmSettings $Config) {
+        Write-Info "Using service '$($Config.ServiceName)' from $($Config.ExternalConfig)."
+    }
     # Attempt service auto-detect once if not set.
     if (-not $Config.ServiceName) {
         $found = Find-ServiceForRoot $rootPath
@@ -126,6 +130,7 @@
                     $new = (Read-Host 'New nginx root').Trim().Trim('"')
                     if ($new) {
                         $Config = Import-Config -RootPath $new -Defaults $seed
+                        Use-NsnssmcmSettings $Config | Out-Null
                         if (-not $Config.ServiceName) {
                             $f = Find-ServiceForRoot $new
                             if ($f) { $Config.ServiceName = $f }

@@ -36,6 +36,20 @@ function Invoke-Configure {
     #>
     param([hashtable]$Config)
     Write-Head 'Configure'
+    if ($Config.ExternalConfig) {
+        # nsnssmcm.json owns root/service/nssm; only the update channel is the updater's own setting.
+        Write-Info "Service settings come from $($Config.ExternalConfig) (managed by NSNSSMCM) - not editable here."
+        Write-Host ("  root:    {0}" -f $Config.Root)
+        Write-Host ("  service: {0}" -f $Config.ServiceName)
+        Write-Host ("  nssm:    {0}" -f (Coalesce $Config.NssmPath '(not found)'))
+        Write-Host 'Leave blank to keep the current value shown in [brackets].'
+        $c = (Read-Host "Default channel stable/mainline/ask [$($Config.Channel)]").Trim().ToLowerInvariant()
+        if ($c -in 'stable', 'mainline', 'ask') { $Config.Channel = $c }
+        elseif ($c) { Write-Warn "Ignored invalid channel '$c'." }
+        Save-Config $Config
+        Write-Good 'Saved.'
+        return
+    }
     Write-Host 'Leave blank to keep the current value shown in [brackets].'
     $r = (Read-Host "nginx root [$($Config.Root)]").Trim(); if ($r) { $Config.Root = $r }
     $s = (Read-Host "Service name [$($Config.ServiceName)]").Trim(); if ($s) { $Config.ServiceName = $s }
