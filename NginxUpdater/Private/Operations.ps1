@@ -251,6 +251,7 @@ function Invoke-ReloadConfig {
     $exe = Get-NginxExePath $Config.Root
     if (-not (Test-Path -LiteralPath $exe)) { Write-Warn 'No active nginx.exe.'; return }
     Write-Info 'Reloading config (nginx -s reload)...'
+    $ErrorActionPreference = 'Continue'  # nginx logs to stderr; don't let 2>&1 become a terminating error
     try { & $exe -s reload -p $Config.Root 2>&1 | Out-String | Write-Host; Write-Good 'Reload signal sent.' }
     catch { Write-Err "Reload failed: $($_.Exception.Message)" }
 }

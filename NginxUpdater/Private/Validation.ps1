@@ -22,6 +22,9 @@
     Write-Info "Testing config with $label ..."
     # nginx -t is authoritative via its EXIT CODE (0 = ok). Do NOT parse the text: nginx prints
     # "syntax is ok" on the first line even when a later [emerg] makes the overall test fail.
+    # nginx writes its normal output to stderr; under $ErrorActionPreference='Stop' (set by the
+    # caller) `2>&1` would turn that into a terminating error, so relax it for this native call.
+    $ErrorActionPreference = 'Continue'
     $out = & $exe -t -p $RootPath 2>&1 | Out-String
     $code = $LASTEXITCODE
     Write-Host $out.Trim()

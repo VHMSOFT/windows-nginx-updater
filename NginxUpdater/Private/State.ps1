@@ -154,6 +154,7 @@ function Get-ExeVersionString {
     #>
     param([string]$ExePath)
     if (-not (Test-Path -LiteralPath $ExePath)) { return $null }
+    $ErrorActionPreference = 'Continue'  # nginx -v prints to stderr
     try {
         $out = & $ExePath -v 2>&1 | Out-String
         if ($out -match 'nginx/([0-9]+\.[0-9]+\.[0-9]+)') { return $Matches[1] }
