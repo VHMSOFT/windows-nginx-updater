@@ -254,3 +254,124 @@ function Invoke-ReloadConfig {
     try { & $exe -s reload -p $Config.Root 2>&1 | Out-String | Write-Host; Write-Good 'Reload signal sent.' }
     catch { Write-Err "Reload failed: $($_.Exception.Message)" }
 }
+
+function Invoke-RestartUnattended {
+    <#
+    .SYNOPSIS
+        Non-interactive restart: tests the config first and restarts only when it passes.
+    .DESCRIPTION
+        Returns an object with Ok and Message. Never prompts and never forces a restart past a failed
+        config test - that decision is left to a person at the per-install menu.
+    #>
+    param([hashtable]$Config)
+    if (-not $Config.ServiceName) {
+        return [pscustomobject]@{ Ok = $false; Message = 'no service name configured' }
+    }
+    if (-not (Test-NginxConfig -RootPath $Config.Root)) {
+        return [pscustomobject]@{ Ok = $false; Message = 'config test failed; service not restarted' }
+    }
+    try {
+        Restart-NginxService $Config.ServiceName
+    } catch {
+        return [pscustomobject]@{ Ok = $false; Message = "restart failed: $($_.Exception.Message)" }
+    }
+    $status = Get-ServiceStatus $Config.ServiceName
+    return [pscustomobject]@{ Ok = ($status -eq 'Running'); Message = "service $status" }
+}
+
+function Get-ChannelOfVersion {
+    <#
+    .SYNOPSIS
+        Infers the nginx channel of a version: even minor = 'stable', odd minor = 'mainline', else $null.
+    #>
+    param([string]$Version)
+    if ($Version -notmatch '^[0-9]+\.([0-9]+)\.[0-9]+') { return $null }
+    if (([int]$Matches[1] % 2) -eq 0) { return 'stable' }
+    return 'mainline'
+}
+
+function Invoke-UpdateUnattended {
+    <#
+    .SYNOPSIS
+        Non-interactive nginx update for one managed install: stage, validate, relink, optional restart.
+    .DESCRIPTION
+        Mirrors Invoke-Update without prompts. The channel is -Channel (override) or the install's saved
+        stable/mainline channel, else the channel its running version belongs to (even minor = stable),
+        else -FallbackChannel; an install whose channel cannot be determined is skipped.
+        Never downgrades, and never repoints the link when the config test fails with the new binary.
+        By default the new binary activates on the next natural restart; -Restart restarts the service now.
+        Returns one result object: Root, Status (Updated|UpToDate|Skipped|Failed), From, To, Message.
+    #>
+    param(
+        [hashtable]$Config,
+        [pscustomobject]$Available,
+        [string]$Channel,
+        [string]$FallbackChannel,
+        [switch]$Restart
+    )
+    $root = $Config.Root
+    $r = [pscustomobject]@{ Root = $root; Status = 'Skipped'; From = $null; To = $null; Message = '' }
+    $st = Get-RootState $root
+    if ($st.State -ne 'Managed') { $r.Message = "not a managed layout (state: $($st.State))"; return $r }
+
+    $active = Get-ActiveVersion $Config $st
+    # Channel precedence: explicit override, the install's saved channel, the channel the running
+    # version belongs to (stay on the track it is already on), then the caller's fallback.
+    $chan = $Channel
+    if (-not $chan -and $Config.Channel -in 'stable', 'mainline') { $chan = $Config.Channel }
+    if (-not $chan) { $chan = Get-ChannelOfVersion $active }
+    if (-not $chan) { $chan = $FallbackChannel }
+    if ($chan -notin 'stable', 'mainline') {
+        $r.Message = "channel is '$($Config.Channel)', not inferable from the running version; " +
+        'set stable/mainline or pass -Channel'
+        return $r
+    }
+    $version = if ($chan -eq 'stable') { $Available.Stable } else { $Available.Mainline }
+    $r.From = $active
+    $r.To = $version
+    if (-not $version) { $r.Status = 'Failed'; $r.Message = "no $chan version resolved"; return $r }
+
+    $needsActivation = $false
+    if ($version -eq $active) {
+        $r.Status = 'UpToDate'
+    } elseif ($active -and ([version]$version -lt [version]$active)) {
+        $r.Message = "active $active is newer than $chan $version; not downgrading"
+        return $r
+    } else {
+        $installed = Get-InstalledVersions $root
+        try {
+            if ($installed -notcontains $version) {
+                $zip = Get-NginxZip $version
+                try { Install-VersionFiles -RootPath $root -Version $version -ZipPath $zip | Out-Null }
+                finally { Remove-Item -LiteralPath $zip -ErrorAction SilentlyContinue }
+            }
+            if (-not (Test-NginxConfig $root $version)) {
+                $r.Status = 'Failed'
+                $r.Message = "config test failed with $version; link unchanged ($version left staged)"
+                return $r
+            }
+            Set-ActiveVersionLink $root $version
+            $Config.ActiveVersion = $version
+            Save-Config $Config
+        } catch {
+            $r.Status = 'Failed'; $r.Message = $_.Exception.Message
+            return $r
+        }
+        $r.Status = 'Updated'
+        $needsActivation = $true
+        $r.Message = 'activates on next restart'
+    }
+
+    if ($needsActivation -and $Restart) {
+        $rs = Invoke-RestartUnattended $Config
+        if ($rs.Ok) {
+            $r.Message = 'restarted; ' + $rs.Message
+        } else {
+            $r.Status = 'Failed'
+            $r.Message = $rs.Message
+        }
+    } elseif (-not $needsActivation) {
+        $r.Message = 'already on the target version'
+    }
+    return $r
+}

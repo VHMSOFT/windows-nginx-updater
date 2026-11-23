@@ -52,7 +52,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $repoRoot $i) -Destination $stage -Recurse -Force
     }
     # Drop any per-install state that must never ship in a release.
-    foreach ($junk in '.update', '.nginx-updater-selfupdate.json', '.nginx-updater.json', 'version.txt') {
+    foreach ($junk in '.update', '.nginx-updater-selfupdate.json', '.nginx-updater.json', '.nginx-updater-mode', 'version.txt') {
         $p = Join-Path $stage $junk
         if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force }
     }

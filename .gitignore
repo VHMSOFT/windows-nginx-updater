@@ -5,6 +5,7 @@ dist/
 .update/
 .nginx-updater-selfupdate.json
 version.txt
+.nginx-updater-mode
 
 # macOS
 .DS_Store

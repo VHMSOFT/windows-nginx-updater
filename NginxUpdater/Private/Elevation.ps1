@@ -35,7 +35,7 @@ function Assert-Admin {
     if ($inv.ContainsKey('LauncherPath') -and $inv['LauncherPath']) { $launcher = $inv['LauncherPath'] }
     $exe = if ($PSVersionTable.PSVersion.Major -ge 6) { 'pwsh' } else { 'powershell' }
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$launcher`"")
-    foreach ($name in 'Root', 'NssmPath', 'ServiceName', 'Channel') {
+    foreach ($name in 'Root', 'NssmPath', 'ServiceName', 'Channel', 'Mode') {
         $value = if ($inv.ContainsKey($name)) { $inv[$name] } else { $null }
         if ($value) { $argList += @("-$name", "`"$value`"") }
     }

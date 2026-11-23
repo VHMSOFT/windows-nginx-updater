@@ -363,6 +363,53 @@ function Invoke-SelfUpdateCheck {
     }
 }
 
+function Install-ToolUpdate {
+    <#
+    .SYNOPSIS
+        Backs up a tool folder, copies a staged release over it and records the new version.
+    .DESCRIPTION
+        Shared by the self-update (applies to this install) and the manager (applies to each managed
+        install). Throws on a copy failure, naming the backup so the caller can report it. Returns the
+        backup folder path. Per-install state (mode marker, version.txt, config) is never in the
+        shipped file set, so it is preserved.
+    #>
+    param([string]$ToolDir, [string]$StagedDir, [string]$Version)
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $backup = Join-Path (Join-Path $ToolDir '.update') "backup-$stamp"
+    try {
+        New-Item -ItemType Directory -Path $backup -Force | Out-Null
+        foreach ($name in 'Update-Nginx.ps1', 'NginxUpdater', 'runAsAdmin.cmd') {
+            $cur = Join-Path $ToolDir $name
+            if (Test-Path -LiteralPath $cur) { Copy-Item -LiteralPath $cur -Destination $backup -Recurse -Force }
+        }
+    } catch {
+        Write-Verbose 'Could not back up current tool files before update.'
+    }
+
+    try {
+        Get-ChildItem -LiteralPath $StagedDir -Force | ForEach-Object {
+            $dest = Join-Path $ToolDir $_.Name
+            if ($_.PSIsContainer) {
+                if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+                Copy-Item -LiteralPath $_.FullName -Destination $dest -Recurse -Force
+            } else {
+                Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
+            }
+        }
+    } catch {
+        throw ('Update failed while copying files: {0} (previous files are backed up at: {1})' -f `
+                $_.Exception.Message, $backup)
+    }
+
+    # Record the newly-installed version locally; this is the source of truth for future checks.
+    Set-InstalledToolVersion -ToolDir $ToolDir -Version $Version
+    $state = Import-SelfUpdateState -ToolDir $ToolDir
+    $state.StagedVersion = $null
+    $state.StagedPath = $null
+    Save-SelfUpdateState -ToolDir $ToolDir -State $state
+    return $backup
+}
+
 function Invoke-SelfUpdateApply {
     <#
     .SYNOPSIS
@@ -384,47 +431,19 @@ function Invoke-SelfUpdateApply {
         return $false
     }
 
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $backup = Join-Path (Join-Path $toolDir '.update') "backup-$stamp"
     try {
-        New-Item -ItemType Directory -Path $backup -Force | Out-Null
-        foreach ($name in 'Update-Nginx.ps1', 'NginxUpdater', 'runAsAdmin.cmd') {
-            $cur = Join-Path $toolDir $name
-            if (Test-Path -LiteralPath $cur) { Copy-Item -LiteralPath $cur -Destination $backup -Recurse -Force }
-        }
+        Install-ToolUpdate -ToolDir $toolDir -StagedDir $pending.StagedDir -Version $pending.Version | Out-Null
     } catch {
-        Write-Verbose 'Could not back up current tool files before update.'
-    }
-
-    try {
-        Get-ChildItem -LiteralPath $pending.StagedDir -Force | ForEach-Object {
-            $dest = Join-Path $toolDir $_.Name
-            if ($_.PSIsContainer) {
-                if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
-                Copy-Item -LiteralPath $_.FullName -Destination $dest -Recurse -Force
-            } else {
-                Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
-            }
-        }
-    } catch {
-        Write-Err "Update failed while copying files: $($_.Exception.Message)"
-        Write-Warn "Your previous files are backed up at: $backup"
+        Write-Err $_.Exception.Message
         return $false
     }
-
-    # Record the newly-installed version locally; this is the source of truth for future checks.
-    Set-InstalledToolVersion -ToolDir $toolDir -Version $pending.Version
-    $state = Import-SelfUpdateState -ToolDir $toolDir
-    $state.StagedVersion = $null
-    $state.StagedPath = $null
-    Save-SelfUpdateState -ToolDir $toolDir -State $state
 
     Write-Good ('Updated to v{0}. Relaunching the tool...' -f $pending.Version)
     $launcher = Join-Path $toolDir 'Update-Nginx.ps1'
     $exe = if ($PSVersionTable.PSVersion.Major -ge 6) { 'pwsh' } else { 'powershell' }
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $launcher)
     $inv = $script:Invocation
-    foreach ($name in 'Root', 'NssmPath', 'ServiceName', 'Channel') {
+    foreach ($name in 'Root', 'NssmPath', 'ServiceName', 'Channel', 'Mode') {
         $val = if ($inv.ContainsKey($name)) { $inv[$name] } else { $null }
         if ($val) { $argList += @("-$name", $val) }
     }

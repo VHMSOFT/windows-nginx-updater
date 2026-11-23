@@ -23,7 +23,8 @@ nginx-updater/
    └─ Private/                       # internal functions, grouped by area
       ├─ Console.ps1   Elevation.ps1  Config.ps1   State.ps1
       ├─ Download.ps1  Symlink.ps1    Service.ps1  Validation.ps1
-      └─ Operations.ps1  Menu.ps1
+      ├─ Operations.ps1  Menu.ps1
+      └─ Mode.ps1  Manager.ps1       # manager mode: mode marker, instance registry, update-all
 ```
 
 Deploy by copying `Update-Nginx.ps1` **and** the `NginxUpdater\` folder together (keep them
@@ -147,9 +148,9 @@ On startup the tool checks its own repo for a newer release and, if found, downl
 banner with a **`u`** menu option to apply it (which replaces the tool files and relaunches). If the
 check fails — offline, proxy, repo down — it **warns and continues**; nothing blocks.
 
-- **Mirrors:** it checks Forgejo (primary) then GitHub (mirror). Each install records per-mirror
-  health in `<toolDir>\.nginx-updater-selfupdate.json` and prefers the mirror that last worked,
-  only falling back to a previously-failed one as a last resort.
+- **Source:** GitHub releases of `VHMSOFT/windows-nginx-updater` (the mirror list in
+  `NginxUpdater.psm1` can hold more than one; per-mirror health is recorded in
+  `<toolDir>\.nginx-updater-selfupdate.json`).
 - **What "newer" means:** the latest release **tag** (e.g. `v1.2.0`) vs the version this install
   recorded in `<toolDir>\version.txt` when it last updated. The release version is never committed
   to source — it lives only in the tag — so nothing has to be stamped or committed to ship.
@@ -158,9 +159,63 @@ check fails — offline, proxy, repo down — it **warns and continues**; nothin
 - **Skip it:** run with `-SkipUpdateCheck` on locked-down/offline servers.
 - Staged downloads and a pre-update backup live under `<toolDir>\.update\`.
 
-See [RELEASING.md](RELEASING.md) for cutting releases and the Forgejo→GitHub mirror setup.
+See [RELEASING.md](RELEASING.md) for cutting releases.
+
+## Modes: managed and manager
+
+The tool runs in one of two modes (`-Mode managed|manager`):
+
+- **managed** (default) — everything described above: one install manages one nginx root.
+- **manager** — one copy per server, at a fixed place of your choice, that keeps a **list of the
+  managed installs** on that server (the list may be empty), keeps their *tool code* current and can
+  update *nginx* on all of them at once.
+
+**Choosing manager mode.** On first run with no nginx found, the prompt offers
+`3) Run as the MANAGER` next to "new install" / "existing root". That choice is remembered in a
+`.nginx-updater-mode` file in the tool folder (delete it, or pass `-Mode managed`, to undo). You can
+also pass `-Mode manager` explicitly.
+
+**The list** lives at `%ProgramData%\NginxUpdater\instances.json` (fixed per server, independent of
+where the manager's files are). Each entry is an nginx root plus, optionally, the folder holding that
+install's `Update-Nginx.ps1` (auto-suggested when it sits in or just under the root). Add/remove from
+the manager menu (`a` / `d`); removing only stops tracking, nothing is deleted.
+
+**Manager menu**
+
+| Key | Action |
+|-----|--------|
+| 1 | List installs: nginx version, state, service status, channel, tool version |
+| 2 | Update tool code on all installs (downloads the release once, backs up and replaces each install's files, records its `version.txt`) |
+| 3 | Update nginx on all installs — stage, `nginx -t` with the new binary, repoint the link; **activates at each install's next natural restart** |
+| 4 | Same as 3, then restart each service (config tested first) |
+| 5 | Restart all installs now (config tested first) |
+
+At startup it self-updates like any install and warns when tracked installs are behind the latest tool
+release. For nginx updates each install stays on its own track: its saved channel (`stable`/`mainline`),
+else the channel its running version belongs to (even minor = stable, odd = mainline). Only an install
+with neither is skipped, unless you pick a channel for it (menu) or pass `-Channel` (CLI, overrides all). Unattended runs
+never downgrade, never force a restart past a failed config test, and one install failing never stops
+the others.
+
+**Unattended (scheduled task)** — everything except `Menu` runs once without prompts and exits `0`
+(ok) or `1` (something failed):
+
+```powershell
+Update-Nginx.ps1 -Mode manager -Action Status
+Update-Nginx.ps1 -Mode manager -Action UpdateTools                    # tool code on all installs
+Update-Nginx.ps1 -Mode manager -Action UpdateNginx                    # stage; activate on next restart
+Update-Nginx.ps1 -Mode manager -Action UpdateNginx -Restart           # ...and restart now (admin)
+Update-Nginx.ps1 -Mode manager -Action UpdateNginx -Channel mainline  # override every install's channel
+Update-Nginx.ps1 -Mode manager -Action Restart                        # restart only (admin)
+```
+
+`UpdateNginx` and `Restart` need an elevated session.
 
 ## Deploying to ~12 servers
+
+With manager mode: install the tool once per server in a fixed folder, run it as the manager, add each
+managed install, and update everything from there (or schedule the unattended actions above).
+Otherwise:
 
 Copy `Update-Nginx.ps1` to each server (or a share) and run it locally per your current workflow —
 e.g. `\\share\tools\Update-Nginx.ps1 -Root C:\nginx`. Settings persist per-root in

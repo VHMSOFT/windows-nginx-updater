@@ -1,30 +1,70 @@
 name: Release
 
-# Builds the minimal-files zip and publishes a GitHub release for a v* tag.
-# Forgejo is the source of truth: it auto-tags on main pushes (see .forgejo/workflows/release.yml)
-# and its push-mirror replicates the tag here, triggering this workflow. workflow_dispatch lets you
-# rebuild a chosen tag manually.
+# On every push to main: compute the next version from the latest commit message, build the
+# minimal-files zip, create the tag vX.Y.Z and publish a GitHub release whose notes are the commit
+# subjects since the previous release. Nothing is committed back - installs track their own version
+# in version.txt, so the release version lives only in the git tag.
+#
+# Bump keyword in the triggering commit message (case-insensitive):
+#   contains "major" or "BREAKING" -> major   |   contains "minor" or "feat" -> minor   |   else patch
+#
+# workflow_dispatch does the same from the current head of the selected branch.
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
   workflow_dispatch: {}
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to full commit SHAs (the version comment is for humans / Dependabot).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # need full history + tags to compute the bump and the notes
+
+      - name: Compute next version and notes
+        id: v
+        run: |
+          set -eu
+          LAST=$(git tag --list 'v*' --sort=-v:refname | head -n1 || true)
+          [ -z "$LAST" ] && LAST="v0.0.0"
+          BASE=${LAST#v}
+          MAJ=$(echo "$BASE" | cut -d. -f1); MIN=$(echo "$BASE" | cut -d. -f2); PAT=$(echo "$BASE" | cut -d. -f3)
+          MAJ=${MAJ:-0}; MIN=${MIN:-0}; PAT=${PAT:-0}
+          MSG=$(git log -1 --pretty=%B)
+          if echo "$MSG" | grep -qiE 'major|BREAKING'; then
+            MAJ=$((MAJ+1)); MIN=0; PAT=0
+          elif echo "$MSG" | grep -qiE 'minor|feat'; then
+            MIN=$((MIN+1)); PAT=0
+          else
+            PAT=$((PAT+1))
+          fi
+          NEW="$MAJ.$MIN.$PAT"
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Next version: v$NEW (from $LAST)"
+          if [ "$LAST" = "v0.0.0" ]; then RANGE=""; else RANGE="$LAST..HEAD"; fi
+          git log $RANGE --pretty=format:'- %s' > release-notes.txt || true
 
       - name: Build release zip
         shell: pwsh
-        run: ./build/New-Release.ps1 -OutputDir dist -Version "${{ github.ref_name }}"
+        run: ./build/New-Release.ps1 -OutputDir dist -Version "${{ steps.v.outputs.version }}"
 
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*.zip
-          generate_release_notes: true
+      - name: Create tag and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ steps.v.outputs.version }}
+        run: |
+          set -eu
+          gh release create "v$VER" "dist/windows-nginx-updater-$VER.zip" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "v$VER" \
+            --notes-file release-notes.txt

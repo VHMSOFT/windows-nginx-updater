@@ -56,12 +56,23 @@ function Coalesce {
     return $null
 }
 
+function Assert-Interactive {
+    <#
+    .SYNOPSIS
+        Throws instead of prompting when running unattended (manager -Action), so a scheduled run can
+        never hang waiting for input.
+    #>
+    param([string]$What)
+    if ($script:NonInteractive) { throw "Unattended run cannot prompt ($What)." }
+}
+
 function Read-Menu {
     <#
     .SYNOPSIS
         Prompts for and returns a trimmed line of menu input.
     #>
     param([string]$Prompt = 'Select an option')
+    Assert-Interactive $Prompt
     return (Read-Host "`n$Prompt").Trim()
 }
 
@@ -71,6 +82,7 @@ function Confirm-YesNo {
         Asks a yes/no question and returns the boolean answer.
     #>
     param([string]$Question, [bool]$DefaultYes = $false)
+    Assert-Interactive $Question
     $suffix = if ($DefaultYes) { '[Y/n]' } else { '[y/N]' }
     while ($true) {
         $ans = (Read-Host "$Question $suffix").Trim().ToLowerInvariant()

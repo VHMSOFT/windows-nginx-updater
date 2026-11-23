@@ -20,6 +20,15 @@
         Path to the launcher script, used when relaunching elevated.
     .PARAMETER SkipUpdateCheck
         Skip the startup self-update check (for offline or locked-down servers).
+    .PARAMETER Mode
+        'managed' (this install manages one nginx root) or 'manager' (tracks many managed installs and
+        updates them all). Default: the mode saved for this install, else 'managed'.
+    .PARAMETER Action
+        Manager mode only. 'Menu' (default) is interactive; 'Status', 'UpdateTools', 'UpdateNginx' and
+        'Restart' run once without prompting (for scheduled tasks).
+    .PARAMETER Restart
+        Manager mode, -Action UpdateNginx: also restart each service (config tested first). Without it
+        the new nginx activates on each install's next natural restart.
     .EXAMPLE
         Invoke-NginxUpdater -Root C:\nginx
     #>
@@ -32,7 +41,12 @@
         [string]$Channel = 'ask',
         [switch]$Status,
         [string]$LauncherPath,
-        [switch]$SkipUpdateCheck
+        [switch]$SkipUpdateCheck,
+        [ValidateSet('managed', 'manager')]
+        [string]$Mode,
+        [ValidateSet('Menu', 'Status', 'UpdateTools', 'UpdateNginx', 'Restart')]
+        [string]$Action = 'Menu',
+        [switch]$Restart
     )
 
     # Record the invocation for a possible elevation relaunch (module functions cannot read the
@@ -43,6 +57,7 @@
         ServiceName  = $ServiceName
         Channel      = $Channel
         LauncherPath = $LauncherPath
+        Mode         = $Mode
     }
 
     if (-not $script:OnWindows) {
@@ -51,8 +66,30 @@
         Write-Warn 'symlink/service actions are disabled.'
     }
 
+    # Manager mode: explicit -Mode, else this install's saved mode. No nginx root is involved.
+    # A non-Menu -Action is an unattended manager run: it implies manager mode and must never prompt.
+    $script:NonInteractive = ($Action -ne 'Menu')
+    if ($script:NonInteractive -and $Mode -eq 'managed') {
+        throw '-Action is only valid in manager mode (omit -Mode managed).'
+    }
+    $toolMode = if ($script:NonInteractive) { 'manager' } else { Resolve-ToolMode $Mode }
+    if ($toolMode -eq 'manager') {
+        $mgr = @{ Action = $(if ($Status) { 'Status' } else { $Action }); Restart = $Restart }
+        if ($PSBoundParameters.ContainsKey('Channel')) { $mgr.Channel = $Channel }
+        Invoke-ManagerMode @mgr -SkipUpdateCheck:$SkipUpdateCheck
+        return
+    }
+
     $seed = @{ ServiceName = $ServiceName; NssmPath = $NssmPath; Channel = $Channel }
     $rootPath = Resolve-RootPath $Root
+    if (-not $rootPath) {
+        # The user chose "run as the manager" at the first-run prompt: remember it and switch.
+        Set-ToolMode 'manager'
+        Write-Info 'Manager mode saved for this install.'
+        Write-Info '(To undo: delete .nginx-updater-mode, or pass -Mode managed.)'
+        Invoke-ManagerMode -SkipUpdateCheck:$SkipUpdateCheck
+        return
+    }
     $Config = Import-Config -RootPath $rootPath -Defaults $seed
     # Attempt service auto-detect once if not set.
     if (-not $Config.ServiceName) {

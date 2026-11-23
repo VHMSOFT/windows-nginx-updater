@@ -30,15 +30,11 @@ $script:PendingUpdate = $null                                 # set by the self-
 
 # Self-update: repo release APIs, primary first. Each install records per-mirror health and prefers
 # a mirror that last worked (see SelfUpdate.ps1).
-$script:RepoWeb = 'https://git.jfs743.com/JFs743/windows-nginx-updater'
+$script:RepoWeb = 'https://github.com/VHMSOFT/windows-nginx-updater'
 $script:Mirrors = @(
     [pscustomobject]@{
-        Name       = 'forgejo'
-        ReleaseApi = 'https://git.jfs743.com/api/v1/repos/JFs743/windows-nginx-updater/releases/latest'
-    }
-    [pscustomobject]@{
         Name       = 'github'
-        ReleaseApi = 'https://api.github.com/repos/JFs743/windows-nginx-updater/releases/latest'
+        ReleaseApi = 'https://api.github.com/repos/VHMSOFT/windows-nginx-updater/releases/latest'
     }
 )
 

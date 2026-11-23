@@ -58,7 +58,8 @@ function Resolve-RootPath {
         With no -Root, looks for nginx.exe one level above the launcher - the tool deployed as a
         subfolder of the nginx root (so ..\nginx.exe is the running binary). If found, that parent
         folder is the root. If not, asks whether this is a new install that should be rooted there;
-        otherwise prompts for the path to an nginx root elsewhere. No parameter is ever required.
+        otherwise prompts for the path to an nginx root elsewhere, or offers to run as the manager
+        (returns $null in that case). No parameter is ever required.
     #>
     param([string]$Provided)
     if ($Provided) { return $Provided }
@@ -79,10 +80,14 @@ function Resolve-RootPath {
 
     Write-Host ''
     Write-Warn 'No nginx.exe found at ..\nginx.exe (one level above the tool).'
-    if ($candidateRoot -and
-        (Confirm-YesNo "Is this a new install whose root should be '$candidateRoot'?" $false)) {
-        return $candidateRoot
+    if ($candidateRoot) {
+        Write-Host ("  1) New nginx install - download nginx and root it at '{0}'" -f $candidateRoot)
     }
+    Write-Host '  2) Use an existing nginx root elsewhere (enter its path)'
+    Write-Host '  3) Run as the MANAGER - track several managed installs on this server and update them all'
+    $choice = Read-Menu 'Choice'
+    if ($choice -eq '3') { return $null }
+    if ($choice -eq '1' -and $candidateRoot) { return $candidateRoot }
     Write-Info 'Enter the path to the existing nginx root folder.'
     Write-Host '  Examples: C:\nginx   D:\services\nginx'
     $r = (Read-Host 'nginx root').Trim().Trim('"')
