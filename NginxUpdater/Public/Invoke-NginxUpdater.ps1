@@ -108,9 +108,9 @@
 
     while ($true) {
         $st = Get-RootState $Config.Root
-        $action = Show-Menu $Config $st
+        $menuAction = Show-Menu $Config $st
         try {
-            switch ($action) {
+            switch ($menuAction) {
                 'scaffold' { Invoke-Scaffold $Config }
                 'migrate' { Invoke-Migrate $Config $st }
                 'update' { Invoke-Update $Config $st }
